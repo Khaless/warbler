@@ -1,4 +1,5 @@
 require 'zip/zip'
+require 'jruby/jrubyc'
 
 module Warbler
   # Class that holds the files that will be stored in the war file.
@@ -136,8 +137,17 @@ module Warbler
       @webinf_filelist = FileList[*(config.dirs.map{|d| "#{d}/**/*"})]
       @webinf_filelist.include *(config.includes.to_a)
       @webinf_filelist.exclude *(config.excludes.to_a)
-      @webinf_filelist.map {|f| add_with_pathmaps(config, f, :application) }
+      @webinf_filelist.map {|f| f = do_compile(f, config); add_with_pathmaps(config, f, :application) }
     end
+
+		def do_compile(f, config)
+			if config.use_jrubyc and f =~ /\.rb$/ and !config.jrubyc_exclude.include?(f)
+				JRubyCompiler::compile_files(f, Dir.pwd, '', Dir.pwd)
+				return f[0..-3] + "class"
+			else
+				return f
+			end
+		end
 
     # Add Bundler Gemfile and .bundle/environment.rb to the war file.
     def add_bundler_files(config)

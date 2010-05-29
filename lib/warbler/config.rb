@@ -81,6 +81,12 @@ module Warbler
     # This also sets 'gem.path' inside web.xml.
     attr_accessor :gem_path
 
+    # Toggle AOP compilation of application .rb files
+    attr_accessor :use_jrubyc
+
+    # file patterns to exclude from compiling
+    attr_accessor :jrubyc_exclude
+
     # Extra configuration for web.xml. Controls how the dynamically-generated web.xml
     # file is generated.
     #
@@ -128,6 +134,8 @@ module Warbler
       @war_name    = File.basename(@rails_root)
       @bundler     = true
       @webinf_files = default_webinf_files
+      @use_jrubyc  = false
+      jrubyc_exclude = ['config/environment.rb', 'config/environments/*.rb', 'config/routes.rb', 'db/migrate/*']
       auto_detect_frameworks
       yield self if block_given?
       update_gem_path
@@ -135,6 +143,12 @@ module Warbler
       @excludes += warbler_vendor_excludes(warbler_home)
       @excludes += FileList["**/*.log"] if @exclude_logs
     end
+
+		def jrubyc_exclude=(arr)
+			@jrubyc_exclude = arr.map { |e|
+				Dir.glob(e)
+			}.flatten
+		end
 
     def gems=(value)
       @gems = Warbler::Gems.new(value)
