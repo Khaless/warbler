@@ -13,9 +13,11 @@ module Warbler
 
     attr_reader :files
     attr_reader :webinf_filelist
+    attr_reader :mapped_files_to_compile
 
     def initialize
       @files = {}
+      @mapped_files_to_compile = []
     end
 
     # Apply the information in a Warbler::Config object in order to
@@ -38,6 +40,10 @@ module Warbler
       if Warbler::Config === config_or_path
         war_path = "#{config_or_path.war_name}.war"
         war_path = File.join(config_or_path.autodeploy_dir, war_path) if config_or_path.autodeploy_dir
+        if config_or_path.use_jrubyc == true
+        	puts "Compiling Files"
+        	compile_files(config_or_path)
+        end
       end
       rm_f war_path
       ensure_directory_entries
@@ -137,15 +143,27 @@ module Warbler
       @webinf_filelist = FileList[*(config.dirs.map{|d| "#{d}/**/*"})]
       @webinf_filelist.include *(config.includes.to_a)
       @webinf_filelist.exclude *(config.excludes.to_a)
-      @webinf_filelist.map {|f| f = do_compile(f, config); add_with_pathmaps(config, f, :application) }
+      @webinf_filelist.map {|f| add_with_pathmaps(config, f, :application) }
     end
 
-		def do_compile(f, config)
-			if config.use_jrubyc and f =~ /\.rb$/ and !config.jrubyc_exclude.include?(f)
-				JRubyCompiler::compile_files(f, Dir.pwd, '', Dir.pwd)
-				return f[0..-3] + "class"
-			else
-				return f
+		def compile_files(config)
+			if config.use_jrubyc
+				if defined?(JRUBY_VERSION) and JRUBY_VERSION >= "1.5"
+					FileUtils.mkdir_p(File.join(Dir.pwd, 'tmp', 'warbler', 'build'))
+					@mapped_files_to_compile.each do |mapped_name|
+						# compile source => target dir
+						source = @files[mapped_name]
+						target = File.join(Dir.pwd, 'tmp', 'warbler', 'build')
+						JRuby::Compiler::compile_files(source, Dir.pwd, '', target)
+						
+						# Rename the mapping to .class and map it to the compiled file under tmp/warbler/build/**path**.class
+						app_path = org.jruby.util.JavaNameMangler.mangle_filename_for_classpath(source, Dir.pwd, "")
+						@files.delete(mapped_name)
+						@files[mapped_name[0..-3] + "class"] = File.join(target, app_path + ".class")
+					end
+				else
+					puts "WARNING: use_jrubyc is true but you are not running JRUBY_VERSION >= 1.5. Files will not be compiled"
+				end
 			end
 		end
 
@@ -162,7 +180,9 @@ module Warbler
 
     private
     def add_with_pathmaps(config, f, map_type)
-      @files[apply_pathmaps(config, f, map_type)] = f
+      pathmap = apply_pathmaps(config, f, map_type)
+    	@mapped_files_to_compile << pathmap if map_type == :application and config.use_jrubyc and f =~ /\.rb$/ and !config.jrubyc_exclude.include?(f)
+      @files[pathmap] = f
     end
 
     def erb_binding(webxml)
